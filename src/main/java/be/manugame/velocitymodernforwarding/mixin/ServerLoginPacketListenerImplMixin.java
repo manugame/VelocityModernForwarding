@@ -4,7 +4,6 @@ import be.manugame.velocitymodernforwarding.config.VelocityModernForwardingConfi
 import com.mojang.authlib.GameProfile;
 import net.minecraft.network.Connection;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.TextComponent;
 import net.minecraft.network.protocol.login.ClientboundHelloPacket;
 import net.minecraft.network.protocol.login.ServerboundCustomQueryPacket;
 import net.minecraft.network.protocol.login.ServerboundHelloPacket;
@@ -20,6 +19,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import javax.annotation.Nullable;
+import java.util.UUID;
 
 @Mixin(ServerLoginPacketListenerImpl.class)
 public abstract class ServerLoginPacketListenerImplMixin {
@@ -29,10 +29,10 @@ public abstract class ServerLoginPacketListenerImplMixin {
     @Shadow
     ServerLoginPacketListenerImpl.State state;
     @Shadow @Final public Connection connection;
-    @Shadow @Final private byte[] nonce;
     @Shadow public abstract void disconnect(Component p_10054_);
     @Shadow @Final
     static Logger LOGGER;
+    @Shadow @Final private byte[] challenge;
     private int velocityLoginMessageId = -1; // Paper - Velocity support
 
     private static boolean isValidUsername(String p_203793_) {
@@ -44,28 +44,34 @@ public abstract class ServerLoginPacketListenerImplMixin {
     @Inject(method = "handleHello", at = @At("HEAD"), cancellable = true)
     public void handleHello(ServerboundHelloPacket p_10047_, CallbackInfo ci) {
         Validate.validState(this.state == ServerLoginPacketListenerImpl.State.HELLO, "Unexpected hello packet");
-        this.gameProfile = p_10047_.getGameProfile();
-        Validate.validState(isValidUsername(this.gameProfile.getName()), "Invalid characters in username");
-        if (this.server.usesAuthentication() && !this.connection.isMemoryConnection()) {
-            this.state = ServerLoginPacketListenerImpl.State.KEY;
-            this.connection.send(new ClientboundHelloPacket("", this.server.getKeyPair().getPublic().getEncoded(), this.nonce));
+        GameProfile gameprofile = this.server.getSingleplayerProfile();
+        if (gameprofile != null && p_10047_.name().equalsIgnoreCase(gameprofile.getName())) {
+            this.gameProfile = gameprofile;
+            this.state = ServerLoginPacketListenerImpl.State.NEGOTIATING; // FORGE: continue NEGOTIATING, we move to READY_TO_ACCEPT after Forge is ready
         } else {
-            // Paper start - Velocity support
-            if (VelocityModernForwardingConfig.isEnabled()) {
-                this.velocityLoginMessageId = java.util.concurrent.ThreadLocalRandom.current().nextInt();
-                System.out.println(velocityLoginMessageId);
-                net.minecraft.network.FriendlyByteBuf buf = new net.minecraft.network.FriendlyByteBuf(io.netty.buffer.Unpooled.buffer());
-                buf.writeByte(com.destroystokyo.paper.proxy.VelocityProxy.MAX_SUPPORTED_FORWARDING_VERSION);
-                net.minecraft.network.protocol.login.ClientboundCustomQueryPacket packet1 = new net.minecraft.network.protocol.login.ClientboundCustomQueryPacket(this.velocityLoginMessageId, com.destroystokyo.paper.proxy.VelocityProxy.PLAYER_INFO_CHANNEL, buf);
-                this.connection.send(packet1);
-                return;
+            this.gameProfile = new GameProfile((UUID) null, p_10047_.name());
+            Validate.validState(isValidUsername(this.gameProfile.getName()), "Invalid characters in username");
+            if (this.server.usesAuthentication() && !this.connection.isMemoryConnection()) {
+                this.state = ServerLoginPacketListenerImpl.State.KEY;
+                this.connection.send(new ClientboundHelloPacket("", this.server.getKeyPair().getPublic().getEncoded(), this.challenge));
+            } else {
+                // Paper start - Velocity support
+                if (VelocityModernForwardingConfig.isEnabled()) {
+                    this.velocityLoginMessageId = java.util.concurrent.ThreadLocalRandom.current().nextInt();
+                    System.out.println(velocityLoginMessageId);
+                    net.minecraft.network.FriendlyByteBuf buf = new net.minecraft.network.FriendlyByteBuf(io.netty.buffer.Unpooled.buffer());
+                    buf.writeByte(com.destroystokyo.paper.proxy.VelocityProxy.MAX_SUPPORTED_FORWARDING_VERSION);
+                    net.minecraft.network.protocol.login.ClientboundCustomQueryPacket packet1 = new net.minecraft.network.protocol.login.ClientboundCustomQueryPacket(this.velocityLoginMessageId, com.destroystokyo.paper.proxy.VelocityProxy.PLAYER_INFO_CHANNEL, buf);
+                    this.connection.send(packet1);
+                    return;
+                }
+                // Paper end
+                this.state = ServerLoginPacketListenerImpl.State.NEGOTIATING;
             }
-            // Paper end
-            this.state = ServerLoginPacketListenerImpl.State.NEGOTIATING;
-        }
 
-        fireEvents();
-        ci.cancel();
+            fireEvents();
+            ci.cancel();
+        }
     }
 
     /**
@@ -78,12 +84,12 @@ public abstract class ServerLoginPacketListenerImplMixin {
         if (VelocityModernForwardingConfig.isEnabled() && packet.getTransactionId() == this.velocityLoginMessageId) {
             net.minecraft.network.FriendlyByteBuf buf = packet.getData();
             if (buf == null) {
-                this.disconnect(new TextComponent("This server requires you to connect with Velocity."));
+                this.disconnect(Component.literal("This server requires you to connect with Velocity."));
                 return;
             }
 
             if (!com.destroystokyo.paper.proxy.VelocityProxy.checkIntegrity(buf)) {
-                this.disconnect(new TextComponent("Unable to verify player details"));
+                this.disconnect(Component.literal("Unable to verify player details"));
                 return;
             }
 
@@ -112,7 +118,7 @@ public abstract class ServerLoginPacketListenerImplMixin {
     public void fireEvents() {
         // Paper start - Velocity support
         if (this.velocityLoginMessageId == -1 && VelocityModernForwardingConfig.isEnabled()) {
-            disconnect(new TextComponent("This server requires you to connect with Velocity."));
+            disconnect(Component.literal("This server requires you to connect with Velocity."));
             return;
         }
 
