@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "be.manugame.velocitymodernforwarding.mixin",
+  "compatibilityLevel": "JAVA_8",
+  "refmap": "velocitymodernforwarding.refmap.json",
+  "mixins": [
+    "ServerLoginPacketListenerImplMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
