@@ -26,19 +26,14 @@ public abstract class ServerLoginPacketListenerImplMixin {
 
     @Shadow @Nullable public GameProfile gameProfile;
     @Shadow @Final private MinecraftServer server;
-
     @Shadow
     ServerLoginPacketListenerImpl.State state;
     @Shadow @Final public Connection connection;
     @Shadow @Final private byte[] nonce;
-
     @Shadow public abstract void disconnect(Component p_10054_);
-
     @Shadow @Final
     static Logger LOGGER;
     private int velocityLoginMessageId = -1; // Paper - Velocity support
-
-
 
     private static boolean isValidUsername(String p_203793_) {
         return p_203793_.chars().filter((p_203791_) -> {
@@ -70,7 +65,6 @@ public abstract class ServerLoginPacketListenerImplMixin {
         }
 
         fireEvents();
-
         ci.cancel();
     }
 
@@ -110,7 +104,6 @@ public abstract class ServerLoginPacketListenerImplMixin {
             //TODO Update handling for lazy sessions, might not even have to do anything?
 
             fireEvents();
-
             ci.cancel();
         }
         // Paper end
